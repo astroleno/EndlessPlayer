@@ -40,7 +40,7 @@ const LyricsScroller: React.FC<LyricsScrollerProps> = ({ lyrics, scrollTime, dis
   // 滚动平滑插值相关
   const currentScrollTopRef = useRef(0);
   const targetScrollTopRef = useRef(0);
-  const smoothingFactor = 0.12; // 平滑度系数
+  const smoothingFactor = 0.01; // 平滑度系数，降低到更小的值
   const lastScrollTopRef = useRef(0); // 用于检测滚动方向
 
   const repeatedLyrics = useMemo(() => Array(9).fill(null).flatMap(() => lyrics), [lyrics]);
@@ -111,11 +111,49 @@ const LyricsScroller: React.FC<LyricsScrollerProps> = ({ lyrics, scrollTime, dis
     const currentScrollTop = scroller.scrollTop;
     const distance = targetScrollTop - currentScrollTop;
     
-    // 添加滚动速度限制，防止疯狂滚动
-    const maxMovePerFrame = 50; // 每帧最大移动50px
-    const clampedDistance = Math.max(-maxMovePerFrame, Math.min(maxMovePerFrame, distance));
+    // 添加最小移动阈值，避免微小抖动
+    if (Math.abs(distance) < 0.5) {
+      // 距离很小时直接到达目标，避免抖动
+      scroller.scrollTop = targetScrollTop;
+      currentScrollTopRef.current = targetScrollTop;
+      animationFrameRef.current = requestAnimationFrame(scrollStep);
+      return;
+    }
     
-    const newScrollTop = currentScrollTop + clampedDistance * smoothingFactor;
+    // 基于时间的精确步进计算
+    let newScrollTop;
+    
+    if (nextIdx !== -1 && lyrics[nextIdx]) {
+      // 有下一行信息时，基于时间间隔计算精确步进
+      const timeDiff = lyrics[nextIdx].time - lyrics[currentIdx].time;
+      const currentTimeInSegment = loopTime - lyrics[currentIdx].time;
+      const progress = Math.max(0, Math.min(1, currentTimeInSegment / timeDiff));
+      
+      // 计算目标位置（当前行到下一行的插值）
+      const nextLineEl = lineRefs.current[loopNum * lyrics.length + nextIdx];
+      if (nextLineEl) {
+        const getCenterPosition = (el: HTMLElement) => el.offsetTop - (scroller.clientHeight / 2) + (el.offsetHeight / 2);
+        const currentLineCenter = getCenterPosition(currentLineEl);
+        const nextLineCenter = getCenterPosition(nextLineEl);
+        const targetPosition = currentLineCenter + (nextLineCenter - currentLineCenter) * progress;
+        
+        // 基于时间间隔计算每帧应该移动的距离
+        const framesPerSecond = 60; // 假设60fps
+        const totalFrames = timeDiff * framesPerSecond;
+        const pixelsPerFrame = Math.abs(targetPosition - currentScrollTop) / totalFrames;
+        
+        // 限制每帧最大移动距离，避免过快
+        const maxPixelsPerFrame = 2; // 每帧最多移动2px
+        const actualPixelsPerFrame = Math.min(pixelsPerFrame, maxPixelsPerFrame);
+        
+        newScrollTop = currentScrollTop + (targetPosition - currentScrollTop > 0 ? actualPixelsPerFrame : -actualPixelsPerFrame);
+      } else {
+        newScrollTop = currentScrollTop + distance * 0.05;
+      }
+    } else {
+      // 没有下一行信息时，使用传统插值
+      newScrollTop = currentScrollTop + distance * 0.05;
+    }
     
     programmaticScrollRef.current = true;
     scroller.scrollTop = newScrollTop;
