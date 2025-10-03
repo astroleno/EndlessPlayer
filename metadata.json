@@ -1,0 +1,5 @@
+{
+  "name": "Endless Player",
+  "description": "A React web application that displays song lyrics synchronized with audio playback. It features smooth, continuous, and loopable automatic scrolling, while also allowing for manual user interaction and seeking.",
+  "requestFramePermissions": []
+}
