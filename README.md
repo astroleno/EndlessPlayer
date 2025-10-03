@@ -56,9 +56,52 @@
 
 ## 构建与部署
 
+### 本地构建测试
 ```bash
 npm run build
 npm run preview
 ```
 
-将 `dist/` 目录部署到任意静态网站托管即可。
+### Vercel 部署
+
+项目已配置好 Vercel 部署，支持以下方式：
+
+#### 方式一：通过 Vercel CLI 部署
+1. 安装 Vercel CLI：
+   ```bash
+   npm i -g vercel
+   ```
+
+2. 在项目根目录执行：
+   ```bash
+   vercel
+   ```
+
+3. 按照提示完成配置即可。
+
+#### 方式二：通过 GitHub 自动部署
+1. 将代码推送到 GitHub 仓库
+2. 在 [Vercel Dashboard](https://vercel.com/dashboard) 中导入项目
+3. 选择 GitHub 仓库，Vercel 会自动检测到 Vite 项目
+4. 部署配置会自动应用，无需额外设置
+
+#### 部署配置说明
+- **构建命令**：`npm run build`
+- **输出目录**：`dist`
+- **Node.js 版本**：18.x
+- **音频文件缓存**：已配置长期缓存策略
+- **SPA 路由**：已配置单页应用路由支持
+
+#### 环境变量（如需要）
+如果项目中使用环境变量，在 Vercel Dashboard 的项目设置中添加：
+- `GEMINI_API_KEY`：Gemini API 密钥（如使用）
+
+#### 部署后的访问
+部署成功后，Vercel 会提供一个 `https://your-project.vercel.app` 的域名，可以直接访问。
+
+### 其他静态托管平台
+将 `dist/` 目录部署到任意静态网站托管即可，如：
+- Netlify
+- GitHub Pages
+- 阿里云 OSS
+- 腾讯云 COS
