@@ -40,13 +40,28 @@ const LyricsScroller: React.FC<LyricsScrollerProps> = ({ lyrics, scrollTime, dis
   // 滚动平滑插值相关
   const currentScrollTopRef = useRef(0);
   const targetScrollTopRef = useRef(0);
-  const smoothingFactor = 0.01; // 平滑度系数，降低到更小的值
   const lastScrollTopRef = useRef(0); // 用于检测滚动方向
+  
+  
+  // iOS移动端特殊处理
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
   const repeatedLyrics = useMemo(() => Array(9).fill(null).flatMap(() => lyrics), [lyrics]);
   const currentLineIndex = findCurrentLineIndex(lyrics, displayTime, duration);
   const loopCount = duration > 0 ? Math.floor(scrollTime / duration) : 0;
   const absoluteCurrentIndex = currentLineIndex >= 0 ? loopCount * lyrics.length + currentLineIndex : -1;
+  
+  // 简化的DOM查询函数
+  const getCenterPosition = useCallback((index: number) => {
+    const lineEl = lineRefs.current[index];
+    if (!lineEl) return 0;
+    
+    const scroller = scrollerRef.current;
+    if (!scroller) return 0;
+    
+    return lineEl.offsetTop - (scroller.clientHeight / 2) + (lineEl.offsetHeight / 2);
+  }, []);
   
   // This is the core animation loop for automatic scrolling
   const scrollStep = useCallback(() => {
@@ -74,7 +89,6 @@ const LyricsScroller: React.FC<LyricsScrollerProps> = ({ lyrics, scrollTime, dis
     const nextIdx = (currentIdx + 1) < lyrics.length ? currentIdx + 1 : -1;
     const loopNum = Math.floor(scrollTime / duration);
     
-    const getCenterPosition = (el: HTMLElement) => el.offsetTop - (scroller.clientHeight / 2) + (el.offsetHeight / 2);
     
     const currentLineEl = lineRefs.current[loopNum * lyrics.length + currentIdx];
     if (!currentLineEl) {
@@ -82,7 +96,7 @@ const LyricsScroller: React.FC<LyricsScrollerProps> = ({ lyrics, scrollTime, dis
         return;
     }
 
-    let targetScrollTop = getCenterPosition(currentLineEl);
+    let targetScrollTop = getCenterPosition(loopNum * lyrics.length + currentIdx);
 
     // Interpolate towards the next line based on time
     if (nextIdx !== -1) {
@@ -91,7 +105,7 @@ const LyricsScroller: React.FC<LyricsScrollerProps> = ({ lyrics, scrollTime, dis
             const timeDiff = lyrics[nextIdx].time - lyrics[currentIdx].time;
             if (timeDiff > 0.01) {
                 const progress = Math.max(0, Math.min(1, (loopTime - lyrics[currentIdx].time) / timeDiff));
-                targetScrollTop = targetScrollTop + (getCenterPosition(nextLineEl) - targetScrollTop) * progress;
+                targetScrollTop = targetScrollTop + (getCenterPosition(loopNum * lyrics.length + nextIdx) - targetScrollTop) * progress;
             }
         }
     } else { // Interpolate towards the start of the next loop with smooth transition
@@ -102,59 +116,27 @@ const LyricsScroller: React.FC<LyricsScrollerProps> = ({ lyrics, scrollTime, dis
                  const progress = Math.max(0, Math.min(1, (loopTime - lyrics[currentIdx].time) / timeUntilEnd));
                  // 使用 easeOutCubic 缓动函数，让循环过渡更平滑
                  const easeProgress = 1 - Math.pow(1 - progress, 3);
-                 targetScrollTop = targetScrollTop + (getCenterPosition(nextLoopFirstLineEl) - targetScrollTop) * easeProgress;
+                 targetScrollTop = targetScrollTop + (getCenterPosition((loopNum + 1) * lyrics.length) - targetScrollTop) * easeProgress;
              }
          }
     }
     
-  // 平滑插值滚动，避免直接跳跃
-  const currentScrollTop = scroller.scrollTop;
-  const distance = targetScrollTop - currentScrollTop;
-  
-  // 添加最小移动阈值，避免微小抖动
-  if (Math.abs(distance) < 0.5) {
-    // 距离很小时直接到达目标，避免抖动
-    scroller.scrollTop = targetScrollTop;
-    currentScrollTopRef.current = targetScrollTop;
-    animationFrameRef.current = requestAnimationFrame(scrollStep);
-    return;
-  }
-  
-  // 使用更平滑的插值，确保连续滚动
-  const smoothingFactor = 0.08; // 增加平滑度
-  let newScrollTop = currentScrollTop + distance * smoothingFactor;
+    // 平滑插值滚动，避免直接跳跃
+    const currentScrollTop = scroller.scrollTop;
+    const distance = targetScrollTop - currentScrollTop;
     
-    if (nextIdx !== -1 && lyrics[nextIdx]) {
-      // 有下一行信息时，基于时间间隔计算精确步进
-      const timeDiff = lyrics[nextIdx].time - lyrics[currentIdx].time;
-      const currentTimeInSegment = loopTime - lyrics[currentIdx].time;
-      const progress = Math.max(0, Math.min(1, currentTimeInSegment / timeDiff));
-      
-      // 计算目标位置（当前行到下一行的插值）
-      const nextLineEl = lineRefs.current[loopNum * lyrics.length + nextIdx];
-      if (nextLineEl) {
-        const getCenterPosition = (el: HTMLElement) => el.offsetTop - (scroller.clientHeight / 2) + (el.offsetHeight / 2);
-        const currentLineCenter = getCenterPosition(currentLineEl);
-        const nextLineCenter = getCenterPosition(nextLineEl);
-        const targetPosition = currentLineCenter + (nextLineCenter - currentLineCenter) * progress;
-        
-        // 基于时间间隔计算每帧应该移动的距离
-        const framesPerSecond = 60; // 假设60fps
-        const totalFrames = timeDiff * framesPerSecond;
-        const pixelsPerFrame = Math.abs(targetPosition - currentScrollTop) / totalFrames;
-        
-        // 限制每帧最大移动距离，避免过快
-        const maxPixelsPerFrame = 2; // 每帧最多移动2px
-        const actualPixelsPerFrame = Math.min(pixelsPerFrame, maxPixelsPerFrame);
-        
-        newScrollTop = currentScrollTop + (targetPosition - currentScrollTop > 0 ? actualPixelsPerFrame : -actualPixelsPerFrame);
-      } else {
-        newScrollTop = currentScrollTop + distance * 0.08;
-      }
-    } else {
-      // 没有下一行信息时，使用传统插值
-      newScrollTop = currentScrollTop + distance * 0.08;
+    // 添加最小移动阈值，避免微小抖动
+    if (Math.abs(distance) < 0.5) {
+      // 距离很小时直接到达目标，避免抖动
+      scroller.scrollTop = targetScrollTop;
+      currentScrollTopRef.current = targetScrollTop;
+      animationFrameRef.current = requestAnimationFrame(scrollStep);
+      return;
     }
+    
+    // 使用更平滑的缓动函数，步进更小
+    const easingFactor = 0.02; // 缓动系数，步进更小更平滑
+    const newScrollTop = currentScrollTop + distance * easingFactor;
     
     programmaticScrollRef.current = true;
     scroller.scrollTop = newScrollTop;
@@ -163,7 +145,7 @@ const LyricsScroller: React.FC<LyricsScrollerProps> = ({ lyrics, scrollTime, dis
 
     animationFrameRef.current = requestAnimationFrame(scrollStep);
 
-  }, [isPlaying, lyrics, displayTime, duration, scrollTime, smoothingFactor]);
+  }, [isPlaying, lyrics, displayTime, duration, scrollTime, getCenterPosition]);
 
   useEffect(() => {
     animationFrameRef.current = requestAnimationFrame(scrollStep);
@@ -172,6 +154,42 @@ const LyricsScroller: React.FC<LyricsScrollerProps> = ({ lyrics, scrollTime, dis
       if (interactionEndTimerRef.current) clearTimeout(interactionEndTimerRef.current);
     };
   }, [scrollStep]);
+
+  // 监听音频重启，重置滚动状态（仅在真正的首次启动时）
+  useEffect(() => {
+    // 仅在真正的首次启动时重置（当前没有正在播放，且两个时间都为0）
+    if (scrollTime === 0 && displayTime === 0 && !isPlaying) {
+      console.log('[LyricsScroller] Initial startup - resetting scroll state');
+      // 仅在首次启动时重置滚动状态
+      isUserInteractingRef.current = false;
+      programmaticScrollRef.current = false;
+      currentScrollTopRef.current = 0;
+      lastScrollTopRef.current = 0;
+
+      // 重置滚动位置到顶部
+      if (scrollerRef.current) {
+        scrollerRef.current.scrollTop = 0;
+      }
+    }
+  }, [scrollTime, displayTime, isPlaying]);
+
+  // 音频循环检测：检测音频是否真的在循环播放
+  const lastScrollTimeRef = useRef(0);
+  useEffect(() => {
+    // 检测scrollTime从大值突然变为0，说明音频循环了
+    // 增加更严格的检测条件，避免误判
+    if (scrollTime === 0 &&
+        lastScrollTimeRef.current > duration * 0.9 &&
+        isPlaying &&
+        lastScrollTimeRef.current > 100) {
+      console.log('[LyricsScroller] Audio loop detected, resetting interaction state only');
+      // 只重置交互状态，保持滚动位置让歌词继续滚动
+      isUserInteractingRef.current = false;
+      programmaticScrollRef.current = false;
+      // 不重置滚动位置，让歌词继续从当前位置滚动
+    }
+    lastScrollTimeRef.current = scrollTime;
+  }, [scrollTime, isPlaying, duration]);
 
 
   // This function runs when the user STOPS interacting
@@ -321,18 +339,22 @@ const LyricsScroller: React.FC<LyricsScrollerProps> = ({ lyrics, scrollTime, dis
               }`}
               style={{
                 opacity: isBlank ? 0 : (isCurrent ? 1 : 0.5),
-                transform: isBlank ? 'scale(1)' : `scale(${isCurrent ? 1.05 : 1})`,
+                // iOS移动端：减少scale变化，避免左右晃动
+                transform: isBlank ? 'scale(1)' : (isIOS && isMobile ? 
+                  `scale(${isCurrent ? 1.02 : 1})` : 
+                  `scale(${isCurrent ? 1.05 : 1})`
+                ),
                 color: isCurrent ? '#E2E8F0' : '#94A3B8',
                 pointerEvents: isBlank ? 'none' : 'auto',
                 userSelect: isBlank ? 'none' : 'auto',
-                height: isBlank ? '5rem' : 'auto',
-                paddingTop: isBlank ? '0' : '3rem',
-                paddingBottom: isBlank ? '0' : '3rem',
-                // 防止左右晃动
-                transformOrigin: 'center',
-                willChange: 'transform, opacity',
-                backfaceVisibility: 'hidden',
-                WebkitBackfaceVisibility: 'hidden'
+                height: isBlank ? '5rem' : 'auto', // Give blank lines a consistent height
+                paddingTop: isBlank ? '0' : '3rem', // 增加顶部间距
+                paddingBottom: isBlank ? '0' : '3rem', // 增加底部间距
+                lineHeight: isBlank ? '1' : '1.6', // 增加行高
+                // 添加transform-origin确保缩放不会导致位置偏移
+                transformOrigin: 'center center',
+                // 添加will-change优化性能
+                willChange: isCurrent ? 'transform, opacity' : 'auto',
               }}
             >
               {line.text || '\u00A0' /* Non-breaking space for layout */}

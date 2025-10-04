@@ -37,8 +37,7 @@
 
 - 将你的音频文件放入 `public/audio/` 目录，例如 `public/audio/我的歌.mp3`。
 - 在运行时，`/audio/我的歌.mp3` 可被直接访问（Vite 会自动拷贝到构建产物）。
-- **桌面端**：使用 `public/audio/心经.mp3` 作为主音频，配合 `tone_singing_bowl.mp3` 作为引入音频
-- **移动端**：使用 `public/audio/心经_2.mp3` 作为合并音频（包含引入音效和主音频）
+- **统一使用**：`public/audio/心经_2.mp3` 作为合并音频（包含引入音效和主音频）
 - 页面加载后会在音频 `onLoadedMetadata` 时读取真实时长并覆盖初始估算时长，保证进度条与歌词滚动精确匹配。
 
 ## 交互说明

@@ -24,8 +24,10 @@ export default function AutoPlayGuard({ onUserInteraction, isReady, isPlaying }:
         setShouldShow(false);
         return;
       }
-      // 只有在音频未就绪且用户未交互时才显示遮罩
-      setShouldShow(!isReady && !hasClicked);
+      // 只要用户没有点击过，就一直显示遮罩，不管音频是否就绪
+      const shouldShowGuard = !hasClicked;
+      console.log('[AutoPlayGuard] Check should show:', { isReady, hasClicked, shouldShowGuard });
+      setShouldShow(shouldShowGuard);
     };
 
     // 初始检查
@@ -52,7 +54,7 @@ export default function AutoPlayGuard({ onUserInteraction, isReady, isPlaying }:
         <div className="autoplay-text">点击开始</div>
         <div className="autoplay-text">心经</div>
       </div>
-      <style jsx global>{`
+      <style jsx="true" global="true">{`
         .autoplay-guard {
           position: fixed;
           inset: 0;
