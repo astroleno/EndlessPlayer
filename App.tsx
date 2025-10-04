@@ -35,6 +35,7 @@ const App: React.FC = () => {
   const [hasUserInteracted, setHasUserInteracted] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [audioRestartCount, setAudioRestartCount] = useState(0);
+  const [debugLogs, setDebugLogs] = useState<string[]>([]);
   
   const audioRef = useRef<HTMLAudioElement>(null);
   const introAudioRef = useRef<HTMLAudioElement>(null);
@@ -48,6 +49,14 @@ const App: React.FC = () => {
 
   const lyrics = useLyrics(LRC_LYRICS);
 
+  // 添加调试日志
+  const addDebugLog = useCallback((message: string) => {
+    const timestamp = new Date().toLocaleTimeString();
+    const logMessage = `[${timestamp}] ${message}`;
+    console.log(logMessage);
+    setDebugLogs(prev => [...prev.slice(-4), logMessage]); // 只保留最近5条日志
+  }, []);
+
   useEffect(() => {
     // 检测是否为移动端
     const checkMobile = () => {
@@ -56,8 +65,15 @@ const App: React.FC = () => {
       const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
       const isSmallScreen = window.innerWidth <= 768;
       
+      // 简化移动端检测逻辑，优先使用User Agent
       const mobile = isMobileDevice || (isTouchDevice && isSmallScreen);
-      console.log('[App] Mobile detection:', { isMobileDevice, isTouchDevice, isSmallScreen, mobile });
+      console.log('[App] Mobile detection:', { 
+        userAgent: userAgent.substring(0, 50), 
+        isMobileDevice, 
+        isTouchDevice, 
+        isSmallScreen, 
+        mobile 
+      });
       setIsMobile(mobile);
       return mobile;
     };
@@ -94,6 +110,30 @@ const App: React.FC = () => {
     const introAudio = introAudioRef.current;
     const mainAudio = audioRef.current;
 
+    // 简化逻辑：优先尝试播放主音频，如果失败则使用引入音频
+    console.log('[App] Attempting to play main audio directly');
+    if (mainAudio) {
+      mainAudio.play()
+        .then(() => {
+          console.log('[App] Main audio started successfully');
+        })
+        .catch(e => {
+          console.error('[Audio] Main audio playback failed:', e);
+          // 如果主音频播放失败，尝试引入音频
+          if (introAudio) {
+            console.log('[App] Fallback: trying intro audio');
+            introAudio.play()
+              .then(() => {
+                console.log('[App] Intro audio started as fallback');
+              })
+              .catch(err => {
+                console.error('[Audio] Intro audio fallback failed:', err);
+              });
+          }
+        });
+    }
+
+    // 保留原有的移动端/桌面端逻辑作为备用
     if (isMobile) {
       // 移动端：只播放合并的音频文件（心经_2.mp3）
       console.log('[App] Mobile device: playing merged audio directly');
@@ -104,7 +144,25 @@ const App: React.FC = () => {
           })
           .catch(e => {
             console.error('[Audio] Mobile merged audio playback failed:', e);
+            // 如果移动端播放失败，尝试使用桌面端逻辑
+            console.log('[App] Mobile fallback: trying desktop audio logic');
+            if (introAudio) {
+              introAudio.play().catch(err => console.error('[Audio] Mobile fallback intro failed:', err));
+            }
           });
+      } else {
+        console.log('[App] Mobile: audio not ready, isReady:', isReady, 'mainAudio:', !!mainAudio);
+        // 如果音频未就绪，尝试强制播放
+        if (mainAudio) {
+          console.log('[App] Mobile: attempting to play audio even if not ready');
+          mainAudio.play()
+            .then(() => {
+              console.log('[App] Mobile: forced audio playback successful');
+            })
+            .catch(e => {
+              console.error('[Audio] Mobile forced playback failed:', e);
+            });
+        }
       }
     } else {
       // 桌面端：先后播放引入音频和主音频
@@ -418,16 +476,29 @@ const App: React.FC = () => {
             isPlaying={isPlaying || isIntroPlaying}
         />
         
-        {/* 移动端调试信息 */}
-        {process.env.NODE_ENV === 'development' && (
-          <div className="fixed top-4 left-4 bg-black bg-opacity-75 text-white text-xs p-2 rounded z-50">
-            <div>Mobile: {isMobile ? 'Yes' : 'No'}</div>
-            <div>User: {hasUserInteracted ? 'Yes' : 'No'}</div>
-            <div>Ready: {isReady ? 'Yes' : 'No'}</div>
-            <div>Playing: {isPlaying ? 'Yes' : 'No'}</div>
-            <div>Intro: {isIntroPlaying ? 'Yes' : 'No'}</div>
-            <div>Restarts: {audioRestartCount}</div>
-            <div>Audio: {audioSrc}</div>
+        {/* 移动端调试信息 - 生产环境也显示 */}
+        {(
+          <div className="fixed top-4 left-4 bg-black bg-opacity-90 text-white text-xs p-3 rounded z-50 max-w-xs">
+            <div className="font-bold mb-2">调试信息</div>
+            <div>设备: {isMobile ? '移动端' : '桌面端'}</div>
+            <div>用户: {hasUserInteracted ? '已交互' : '未交互'}</div>
+            <div>音频: {isReady ? '就绪' : '未就绪'}</div>
+            <div>播放: {isPlaying ? '播放中' : '暂停'}</div>
+            <div>引入: {isIntroPlaying ? '播放中' : '未播放'}</div>
+            <div>重启: {audioRestartCount}次</div>
+            <div className="text-xs text-gray-300 mt-1">文件: {audioSrc.split('/').pop()}</div>
+            <button 
+              onClick={() => {
+                console.log('[Debug] Manual audio test');
+                const audio = audioRef.current;
+                if (audio) {
+                  audio.play().catch(e => console.error('[Debug] Manual play failed:', e));
+                }
+              }}
+              className="mt-2 px-2 py-1 bg-blue-600 text-white text-xs rounded"
+            >
+              测试播放
+            </button>
           </div>
         )}
         
