@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { LRC_LYRICS } from './constants';
 import useLyrics from './hooks/useLyrics';
-import LyricsScroller from './components/LyricsScroller';
+import LyricsController from './components/LyricsController';
 import AudioPlayer from './components/AudioPlayer';
 import AutoPlayGuard from './components/AutoPlayGuard';
 import type { LyricLine } from './types';
@@ -104,11 +104,18 @@ const App: React.FC = () => {
     setHasUserInteracted(true);
     setIsIntroPlaying(true);
 
-    // 重置滚动状态，确保初始同步
-    setScrollTime(0);
-    setCurrentTime(0);
-    loopCountRef.current = 0;
-    if (audioRef.current) audioRef.current.currentTime = 0;
+    // 设置初始位置为第3轮，让歌词在屏幕中央
+    const initialLoop = 3;
+    const initialScrollTime = MOCK_DURATION * initialLoop; // 使用Mock Duration确保初始设置生效
+    const initialDisplayTime = 0; // 从第1轮开始显示，但滚动到第3轮位置
+
+    setScrollTime(initialScrollTime);
+    setCurrentTime(initialDisplayTime);
+    loopCountRef.current = initialLoop;
+
+    if (audioRef.current) {
+        audioRef.current.currentTime = initialDisplayTime;
+    }
 
     const mainAudio = audioRef.current;
 
@@ -229,13 +236,6 @@ const App: React.FC = () => {
       const target = e.currentTarget;
       const realDuration = Math.max(1, Math.floor(target.duration));
       setDuration(realDuration);
-      // 延迟调整到第5轮，等音频开始播放后再调整
-      setTimeout(() => {
-        if (isPlaying || isIntroPlaying) {
-          setScrollTime(realDuration * 5);
-          loopCountRef.current = 5;
-        }
-      }, 500);
       // 若存在待应用的跳转时间，则按照新时长重新计算并应用到音频
       const pendingAbs = pendingSeekAbsoluteTimeRef.current;
       if (pendingAbs != null) {
@@ -348,6 +348,17 @@ const App: React.FC = () => {
         audio.pause();
       } else {
         console.log('[App] Mobile: page visible, resuming audio');
+        // 同步状态，避免时间不一致
+        if (audioRef.current) {
+          const expectedTime = currentTime;
+          const actualTime = audioRef.current.currentTime;
+
+          // 如果时间差异过大，重新同步
+          if (Math.abs(expectedTime - actualTime) > 0.5) {
+            audioRef.current.currentTime = expectedTime;
+          }
+        }
+
         if (isPlaying) {
           audio.play().catch(e => {
             console.error('[Audio] Mobile resume failed:', e);
@@ -386,7 +397,7 @@ const App: React.FC = () => {
   console.log('[App] Render state:', { hasUserInteracted, isReady, isPlaying, isIntroPlaying });
   
   return (
-    <div className={`flex flex-col h-screen bg-[#202734] font-sans overflow-hidden ${!hasUserInteracted ? 'opacity-0' : 'opacity-100'} transition-opacity duration-300`}>
+    <div className={`flex flex-col h-screen bg-[#202734] font-sans overflow-hidden opacity-100 transition-opacity duration-300`}>
         {/* 主音频 */}
         <audio
             key={audioSrc} ref={audioRef} src={audioSrc || undefined}
@@ -408,42 +419,7 @@ const App: React.FC = () => {
             isPlaying={isPlaying || isIntroPlaying}
         />
         
-        {/* 移动端调试信息 - 生产环境也显示 */}
-        {(
-          <div className="fixed top-4 left-4 bg-black bg-opacity-90 text-white text-xs p-3 rounded z-50 max-w-xs">
-            <div className="font-bold mb-2">调试信息</div>
-            <div>设备: {isMobile ? '移动端' : '桌面端'}</div>
-            <div>用户: {hasUserInteracted ? '已交互' : '未交互'}</div>
-            <div>音频: {isReady ? '就绪' : '未就绪'}</div>
-            <div>播放: {isPlaying ? '播放中' : '暂停'}</div>
-            <div>引入: {isIntroPlaying ? '播放中' : '未播放'}</div>
-            <div>重启: {audioRestartCount}次</div>
-            <div className="text-xs text-gray-300 mt-1">文件: {audioSrc.split('/').pop()}</div>
-            <button 
-              onClick={() => {
-                addDebugLog('手动测试播放');
-                const audio = audioRef.current;
-                if (audio) {
-                  audio.play().catch(e => {
-                    addDebugLog(`播放失败: ${e.message}`);
-                    console.error('[Debug] Manual play failed:', e);
-                  });
-                }
-              }}
-              className="mt-2 px-2 py-1 bg-blue-600 text-white text-xs rounded"
-            >
-              测试播放
-            </button>
-            {debugLogs.length > 0 && (
-              <div className="mt-2 text-xs text-gray-300">
-                <div className="font-bold">最近日志:</div>
-                {debugLogs.map((log, index) => (
-                  <div key={index} className="truncate">{log}</div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+        {/* 调试信息已隐藏 */}
         
         <div className="fixed inset-0 grid place-items-center pointer-events-none z-0">
             <span
@@ -457,11 +433,11 @@ const App: React.FC = () => {
 
         <main className="relative w-full flex-grow flex justify-center items-center z-10 py-4 overflow-hidden">
             <div className="relative w-full max-w-4xl h-full pointer-events-auto">
-                <LyricsScroller
+                <LyricsController
                     lyrics={lyrics}
-                    scrollTime={scrollTime}
-                    displayTime={currentTime}
+                    currentTime={currentTime}
                     duration={duration}
+                    scrollTime={scrollTime}
                     onSeek={handleSeek}
                     isPlaying={isPlaying}
                 />

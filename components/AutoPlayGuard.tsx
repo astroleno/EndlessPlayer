@@ -15,29 +15,13 @@ export default function AutoPlayGuard({ onUserInteraction, isReady, isPlaying }:
   const [hasClicked, setHasClicked] = useState(false);
 
   useEffect(() => {
+    // 强制显示遮罩，不管什么情况
+    if (!hasClicked) {
+      setShouldShow(true);
+      console.log('[AutoPlayGuard] Force showing guard');
+    }
     setMounted(true);
-    
-    // 检测是否需要显示引导
-    const checkShouldShow = () => {
-      // 如果用户已经点击过，立即隐藏遮罩
-      if (hasClicked) {
-        setShouldShow(false);
-        return;
-      }
-      // 只要用户没有点击过，就一直显示遮罩，不管音频是否就绪
-      const shouldShowGuard = !hasClicked;
-      console.log('[AutoPlayGuard] Check should show:', { isReady, hasClicked, shouldShowGuard });
-      setShouldShow(shouldShowGuard);
-    };
-
-    // 初始检查
-    checkShouldShow();
-    
-    // 监听音频状态变化
-    const interval = setInterval(checkShouldShow, 200);
-    
-    return () => clearInterval(interval);
-  }, [isReady, isPlaying, hasClicked]);
+  }, [hasClicked]);
 
   const handleClick = () => {
     console.log('[AutoPlayGuard] User clicked to start playback');
@@ -46,71 +30,53 @@ export default function AutoPlayGuard({ onUserInteraction, isReady, isPlaying }:
     onUserInteraction();
   };
 
+  // 直接使用固定定位，不用createPortal
   if (!mounted || !shouldShow) return null;
 
-  return createPortal(
-    <div className="autoplay-guard" onClick={handleClick}>
-      <div className="autoplay-content">
-        <div className="autoplay-text">点击开始</div>
-        <div className="autoplay-text">心经</div>
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        width: '100vw',
+        height: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: '#202734',
+        color: '#e2e8f0',
+        zIndex: 2147483647,
+        cursor: 'pointer',
+        userSelect: 'none',
+        WebkitTapHighlightColor: 'transparent',
+        WebkitTouchCallout: 'none',
+        WebkitUserSelect: 'none',
+        touchAction: 'manipulation',
+        fontSize: '16px'
+      }}
+      onClick={handleClick}
+    >
+      <div style={{ textAlign: 'center' }}>
+        <div style={{
+          fontSize: '2.5rem',
+          fontWeight: 600,
+          color: '#e2e8f0',
+          marginBottom: '0.5rem'
+        }}>
+          点击开始
+        </div>
+        <div style={{
+          fontSize: '3rem',
+          fontWeight: 700,
+          color: '#e2e8f0',
+          marginBottom: 0
+        }}>
+          心经
+        </div>
       </div>
-      <style jsx="true" global="true">{`
-        .autoplay-guard {
-          position: fixed;
-          inset: 0;
-          height: 100dvh;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          background: #202734;
-          color: #e2e8f0;
-          z-index: 2147483647;
-          cursor: pointer;
-          user-select: none;
-          -webkit-tap-highlight-color: transparent;
-          -webkit-touch-callout: none;
-          -webkit-user-select: none;
-          touch-action: manipulation;
-        }
-        
-        .autoplay-content {
-          text-align: center;
-        }
-        
-        .autoplay-text {
-          font-size: 2.5rem;
-          font-weight: 600;
-          color: #e2e8f0;
-          margin-bottom: 0.5rem;
-        }
-        
-        .autoplay-text:last-child {
-          font-size: 3rem;
-          font-weight: 700;
-          margin-bottom: 0;
-        }
-        
-        /* 移动端优化 */
-        @media (max-width: 768px) {
-          .autoplay-text {
-            font-size: 2rem;
-          }
-          
-          .autoplay-text:last-child {
-            font-size: 2.5rem;
-          }
-        }
-        
-        /* 确保遮罩在最顶层 */
-        .autoplay-guard * {
-          pointer-events: none;
-        }
-        
-        .autoplay-guard {
-          pointer-events: auto;
-        }
-      `}</style>
-    </div>,
-    document.body
+    </div>
   );
 }

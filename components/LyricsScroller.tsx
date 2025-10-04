@@ -42,15 +42,79 @@ const LyricsScroller: React.FC<LyricsScrollerProps> = ({ lyrics, scrollTime, dis
   const targetScrollTopRef = useRef(0);
   const lastScrollTopRef = useRef(0); // 用于检测滚动方向
 
+  // 移动端性能优化相关
+  const lastScreenParamsRef = useRef<any>(null);
+  const screenParamsUpdateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // 时间插值相关
   const interpolatedTimeRef = useRef(displayTime);
   const lastTimeUpdateRef = useRef(Date.now());
   const targetTimeRef = useRef(displayTime);
   
   
-  // iOS移动端特殊处理
-  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  // 移动端检测优化 - 安全检查
+  const isIOS = typeof navigator !== 'undefined' ? /iPad|iPhone|iPod/.test(navigator.userAgent) : false;
+  const isMobile = typeof navigator !== 'undefined' ? /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) : false;
+
+  // 获取屏幕相关的响应式参数（带性能优化）
+  const getScreenParams = useCallback(() => {
+    // 安全检查：确保window对象可用
+    if (typeof window === 'undefined') {
+      return {
+        screenHeight: 800,
+        screenWidth: 375,
+        usableHeight: 640,
+        isLandscape: false,
+        isSmallScreen: false,
+        baseStep: 8,
+        maxStep: 32,
+        smallDistanceThreshold: 12,
+        mediumDistanceThreshold: 96,
+        largeDistanceThreshold: 192,
+        lastUpdate: Date.now()
+      };
+    }
+
+    // 性能优化：缓存屏幕参数，避免频繁计算
+    const now = Date.now();
+    const cachedParams = lastScreenParamsRef.current;
+
+    // 如果缓存时间不超过1秒，直接返回缓存值
+    if (cachedParams && cachedParams.lastUpdate && (now - cachedParams.lastUpdate) < 1000) {
+      return cachedParams;
+    }
+
+    const screenHeight = window.innerHeight;
+    const screenWidth = window.innerWidth;
+    const isLandscape = screenWidth > screenHeight;
+    const usableHeight = screenHeight * (isMobile ? 0.8 : 0.9); // 移动端考虑底部导航栏等
+    const isSmallScreen = screenHeight < 667; // iPhone SE 等小屏幕
+
+    // 基于屏幕高度的相对步进参数
+    const baseStep = Math.max(usableHeight * 0.015, 4); // 最小4px，最大基于屏幕高度的1.5%
+    const maxStep = Math.max(usableHeight * 0.08, 16); // 最小16px，最大基于屏幕高度的8%
+    const smallDistanceThreshold = usableHeight * 0.02; // 小距离阈值
+    const mediumDistanceThreshold = usableHeight * 0.15; // 中等距离阈值
+    const largeDistanceThreshold = usableHeight * 0.3; // 大距离阈值
+
+    const params = {
+      screenHeight,
+      screenWidth,
+      usableHeight,
+      isLandscape,
+      isSmallScreen,
+      baseStep,
+      maxStep,
+      smallDistanceThreshold,
+      mediumDistanceThreshold,
+      largeDistanceThreshold,
+      lastUpdate: now
+    };
+
+    // 更新缓存
+    lastScreenParamsRef.current = params;
+    return params;
+  }, [isMobile]);
 
   const repeatedLyrics = useMemo(() => Array(9).fill(null).flatMap(() => lyrics), [lyrics]);
   const currentLineIndex = findCurrentLineIndex(lyrics, displayTime, duration);
@@ -95,24 +159,24 @@ const LyricsScroller: React.FC<LyricsScrollerProps> = ({ lyrics, scrollTime, dis
         timeDiff = Math.abs(directDiff) < Math.abs(wrappedDiff) ? directDiff : wrappedDiff;
       }
 
-      // 动态调整平滑系数：时间差越大，跟踪越紧
+      // 大幅提高桌面端时间插值，解决卡顿
       const absTimeDiff = Math.abs(timeDiff);
-      let smoothingFactor = 0.08; // 基础平滑系数，更紧的跟踪
+      let smoothingFactor = 0.7; // 大幅提高基础时间跟踪系数
 
       if (absTimeDiff > 5.0) {
-        smoothingFactor = 0.3; // 大时间差时快速跟踪
+        smoothingFactor = isMobile ? 0.6 : 0.9; // 桌面端极高时间跟踪
       } else if (absTimeDiff > 2.0) {
-        smoothingFactor = 0.15; // 中等时间差时适度跟踪
+        smoothingFactor = isMobile ? 0.45 : 0.8; // 桌面端快速时间跟踪
       } else if (absTimeDiff < 0.1) {
-        smoothingFactor = 0.05; // 小时间差时平滑跟踪
+        smoothingFactor = isMobile ? 0.15 : 0.6; // 桌面端提高小时间差响应
       }
 
       interpolatedTimeRef.current += timeDiff * smoothingFactor;
 
       // 优化防漂移逻辑：使用更小的阈值和渐进式修正
-      if (Math.abs(interpolatedTimeRef.current - targetTime) > 0.2) {
+      if (Math.abs(interpolatedTimeRef.current - targetTime) > 0.1) {
         // 使用渐进式修正而不是直接重置
-        const correctionFactor = 0.1;
+        const correctionFactor = 0.25; // 大幅增加修正系数，减少阻力
         interpolatedTimeRef.current += (targetTime - interpolatedTimeRef.current) * correctionFactor;
       }
     }
@@ -194,21 +258,30 @@ const LyricsScroller: React.FC<LyricsScrollerProps> = ({ lyrics, scrollTime, dis
       return;
     }
 
-    // 动态调整缓动系数：距离越大，响应越快
+    // 使用屏幕相关的响应式参数优化滚动
+    const screenParams = getScreenParams();
     const absDistance = Math.abs(distance);
-    let easingFactor = 0.08; // 基础缓动系数，更快的响应
 
-    if (absDistance > 100) {
-      easingFactor = 0.15; // 大距离时快速响应
-    } else if (absDistance > 50) {
-      easingFactor = 0.12; // 中等距离时适度响应
-    } else if (absDistance < 5) {
-      easingFactor = 0.05; // 小距离时精细调整
+    // 大幅提高桌面端缓动系数，解决卡顿问题
+    let easingFactor = 0.6; // 大幅提高基础缓动系数
+
+    if (absDistance > screenParams.largeDistanceThreshold) {
+      easingFactor = isMobile ? 0.55 : 0.8; // 桌面端极高响应
+    } else if (absDistance > screenParams.mediumDistanceThreshold) {
+      easingFactor = isMobile ? 0.40 : 0.7; // 桌面端高响应
+    } else if (absDistance < screenParams.smallDistanceThreshold) {
+      easingFactor = isMobile ? 0.12 : 0.5; // 桌面端提高小距离响应
     }
 
-    // 添加速度限制，避免过大的跳跃
-    const maxStep = Math.max(5, absDistance * 0.3);
-    const step = Math.min(Math.abs(distance * easingFactor), maxStep);
+    // 桌面端移除步进限制，移动端保持响应式参数
+    let step;
+    if (isMobile) {
+      const dynamicMaxStep = Math.max(screenParams.baseStep, Math.min(screenParams.maxStep, absDistance * 0.7));
+      step = Math.min(Math.abs(distance * easingFactor), dynamicMaxStep);
+    } else {
+      // 桌面端直接使用插值，不限制步长
+      step = Math.abs(distance * easingFactor);
+    }
     const newScrollTop = currentScrollTop + (distance > 0 ? step : -step);
     
     programmaticScrollRef.current = true;
@@ -241,8 +314,50 @@ const LyricsScroller: React.FC<LyricsScrollerProps> = ({ lyrics, scrollTime, dis
     return () => {
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
       if (interactionEndTimerRef.current) clearTimeout(interactionEndTimerRef.current);
+      if (screenParamsUpdateTimerRef.current) clearTimeout(screenParamsUpdateTimerRef.current);
     };
   }, [scrollStep]);
+
+  // 监听屏幕旋转和尺寸变化，更新屏幕参数
+  useEffect(() => {
+    const handleOrientationChange = () => {
+      // 清除旧的定时器
+      if (screenParamsUpdateTimerRef.current) {
+        clearTimeout(screenParamsUpdateTimerRef.current);
+      }
+
+      // 延迟更新屏幕参数，等待浏览器完成方向切换
+      screenParamsUpdateTimerRef.current = setTimeout(() => {
+        // 强制更新缓存的屏幕参数
+        lastScreenParamsRef.current = getScreenParams();
+        console.log('[LyricsScroller] Screen parameters updated due to orientation change');
+      }, 300);
+    };
+
+    const handleResize = () => {
+      // 防抖处理窗口大小变化
+      if (screenParamsUpdateTimerRef.current) {
+        clearTimeout(screenParamsUpdateTimerRef.current);
+      }
+
+      screenParamsUpdateTimerRef.current = setTimeout(() => {
+        lastScreenParamsRef.current = getScreenParams();
+        console.log('[LyricsScroller] Screen parameters updated due to resize');
+      }, 200);
+    };
+
+    // 添加事件监听
+    window.addEventListener('orientationchange', handleOrientationChange);
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      window.removeEventListener('orientationchange', handleOrientationChange);
+      window.removeEventListener('resize', handleResize);
+      if (screenParamsUpdateTimerRef.current) {
+        clearTimeout(screenParamsUpdateTimerRef.current);
+      }
+    };
+  }, [getScreenParams]);
 
   // 监听音频重启，重置滚动状态（仅在真正的首次启动时）
   useEffect(() => {
@@ -302,101 +417,113 @@ const LyricsScroller: React.FC<LyricsScrollerProps> = ({ lyrics, scrollTime, dis
     interpolatedTimeRef.current = displayTime;
     targetTimeRef.current = displayTime;
 
-    // 1. 确定滚动方向
+    // 1. 获取当前滚动位置和视口中心
     const currentScrollTop = scroller.scrollTop;
-    const scrollDirection = currentScrollTop > lastScrollTopRef.current ? 'down' : 'up';
-    lastScrollTopRef.current = currentScrollTop;
-
-    // 2. 根据滚动方向寻找合适的歌词行
     const centerViewport = currentScrollTop + scroller.clientHeight / 2;
-    let targetIndex = -1;
-    let minDistance = Infinity;
+    const screenParams = getScreenParams();
 
-    // 首先找到距离中心最近的歌词行作为基准
-    let closestToCenter = -1;
-    let closestDistance = Infinity;
+    // 2. 寻找距离视口中心最近的歌词行，设置合理的容差范围
+    let bestMatch = -1;
+    let bestDistance = Infinity;
+    const tolerance = screenParams.usableHeight * 0.15; // 15%的可用高度作为容差
 
-    for (let i = 0; i < repeatedLyrics.length; i++) {
+    // 优化的搜索策略：优先在当前循环中寻找
+    const currentLoop = Math.floor(displayTime / duration);
+    const startIndex = Math.max(0, currentLoop * lyrics.length - lyrics.length);
+    const endIndex = Math.min(repeatedLyrics.length, (currentLoop + 2) * lyrics.length);
+
+    for (let i = startIndex; i < endIndex; i++) {
       const lineEl = lineRefs.current[i];
       const lyricLine = repeatedLyrics[i];
       if (lineEl && lyricLine?.text.trim()) {
         const lineCenter = lineEl.offsetTop + lineEl.offsetHeight / 2;
         const distance = Math.abs(centerViewport - lineCenter);
-        if (distance < closestDistance) {
-          closestDistance = distance;
-          closestToCenter = i;
+
+        // 在容差范围内优先选择，否则选择最近的
+        if (distance <= tolerance && distance < bestDistance) {
+          bestDistance = distance;
+          bestMatch = i;
+        } else if (bestMatch === -1 && distance < bestDistance) {
+          bestDistance = distance;
+          bestMatch = i;
         }
       }
     }
 
-    if (closestToCenter === -1) {
+    // 如果在当前循环附近没找到合适匹配，扩大搜索范围
+    if (bestMatch === -1) {
+      for (let i = 0; i < repeatedLyrics.length; i++) {
+        const lineEl = lineRefs.current[i];
+        const lyricLine = repeatedLyrics[i];
+        if (lineEl && lyricLine?.text.trim()) {
+          const lineCenter = lineEl.offsetTop + lineEl.offsetHeight / 2;
+          const distance = Math.abs(centerViewport - lineCenter);
+          if (distance < bestDistance) {
+            bestDistance = distance;
+            bestMatch = i;
+          }
+        }
+      }
+    }
+
+    if (bestMatch === -1) {
+      // 如果还是没找到，直接释放交互锁，避免跳转
       isUserInteractingRef.current = false;
       return;
     }
 
-    // 3. 根据滚动方向寻找同一方向上最近的歌词
-    if (scrollDirection === 'down') {
-      // 向下滚动：寻找基准位置下方（索引更大）的歌词
-      for (let i = closestToCenter; i < repeatedLyrics.length; i++) {
-        const lineEl = lineRefs.current[i];
-        const lyricLine = repeatedLyrics[i];
-        if (lineEl && lyricLine?.text.trim()) {
-          const lineCenter = lineEl.offsetTop + lineEl.offsetHeight / 2;
-          const distance = Math.abs(centerViewport - lineCenter);
-          if (distance < minDistance) {
-            minDistance = distance;
-            targetIndex = i;
-          }
-          // 如果已经向下越过基准位置，就不再向上寻找
-          if (lineCenter > centerViewport && minDistance !== Infinity) {
-            break;
-          }
-        }
-      }
+    // 3. 安全的时间计算，添加多重验证
+    const lyricIndexInLoop = bestMatch % lyrics.length;
+    const calculatedLoop = Math.floor(bestMatch / lyrics.length);
+
+    // 验证计算结果的合理性
+    if (lyricIndexInLoop < 0 || lyricIndexInLoop >= lyrics.length) {
+      console.warn('[LyricsScroller] Invalid lyric index calculated:', lyricIndexInLoop);
+      isUserInteractingRef.current = false;
+      return;
+    }
+
+    // 计算新时间，并确保在合理范围内
+    const newTime = (calculatedLoop * duration) + lyrics[lyricIndexInLoop].time;
+
+    // 验证时间值的合理性
+    if (newTime < 0 || isNaN(newTime) || !isFinite(newTime)) {
+      console.warn('[LyricsScroller] Invalid time calculated:', newTime);
+      isUserInteractingRef.current = false;
+      return;
+    }
+
+    // 检查时间跳跃是否过大，可能是计算错误
+    const timeDifference = Math.abs(newTime - displayTime);
+    const maxReasonableJump = duration * 2; // 最多允许跳跃2个循环
+    if (timeDifference > maxReasonableJump) {
+      console.warn('[LyricsScroller] Excessive time jump detected:', {
+        from: displayTime,
+        to: newTime,
+        difference: timeDifference
+      });
+      // 如果跳跃过大，使用更保守的时间计算
+      const conservativeLoop = Math.max(0, Math.min(calculatedLoop, currentLoop + 1));
+      const conservativeTime = (conservativeLoop * duration) + lyrics[lyricIndexInLoop].time;
+      onSeek(conservativeTime);
     } else {
-      // 向上滚动：寻找基准位置上方（索引更小）的歌词
-      for (let i = closestToCenter; i >= 0; i--) {
-        const lineEl = lineRefs.current[i];
-        const lyricLine = repeatedLyrics[i];
-        if (lineEl && lyricLine?.text.trim()) {
-          const lineCenter = lineEl.offsetTop + lineEl.offsetHeight / 2;
-          const distance = Math.abs(centerViewport - lineCenter);
-          if (distance < minDistance) {
-            minDistance = distance;
-            targetIndex = i;
-          }
-          // 如果已经向上越过基准位置，就不再向下寻找
-          if (lineCenter < centerViewport && minDistance !== Infinity) {
-            break;
-          }
-        }
-      }
+      onSeek(newTime);
     }
 
-    // 如果没有找到合适的，使用最近的基准
-    if (targetIndex === -1) {
-      targetIndex = closestToCenter;
-    }
-
-    // 4. 计算新的时间并跳转
-    const lyricIndexInLoop = targetIndex % lyrics.length;
-    const loopNum = Math.floor(targetIndex / lyrics.length);
-    const newTime = (loopNum * duration) + lyrics[lyricIndexInLoop].time;
-    onSeek(newTime);
-
-    // 5. 释放交互锁，允许自动滚动恢复
+    // 4. 释放交互锁，允许自动滚动恢复
     isUserInteractingRef.current = false;
-  }, [duration, onSeek, lyrics, repeatedLyrics, isPlaying]);
+  }, [duration, onSeek, lyrics, repeatedLyrics, isPlaying, displayTime, getScreenParams]);
 
   // 针对"明确的用户手势"（wheel/touchstart/mousedown）：强制进入交互状态
   const handleUserGestureStart = useCallback(() => {
     isUserInteractingRef.current = true;
 
-    // 延迟更短，让用户感觉更跟手
+    // 简单有效的延迟机制
+    const delay = isPlaying ? 300 : 200;
     setTimeout(() => {
       handleInteractionEnd();
-    }, isPlaying ? 50 : 15);
-  }, [handleInteractionEnd, isPlaying]);
+    }, delay);
+  }, [handleInteractionEnd]);
 
   // 针对 scroll 事件：若是程序性滚动则忽略；用户滚动则进入交互状态
   const handleScrollStart = useCallback(() => {
@@ -412,15 +539,28 @@ const LyricsScroller: React.FC<LyricsScrollerProps> = ({ lyrics, scrollTime, dis
       clearTimeout(interactionEndTimerRef.current);
     }
 
+    // 简单的滚动延迟
+    const scrollDelay = isPlaying ? 400 : 250;
     interactionEndTimerRef.current = setTimeout(() => {
       handleInteractionEnd();
-    }, isPlaying ? 75 : 25);
-  }, [handleInteractionEnd, isPlaying]);
+    }, scrollDelay);
+  }, [handleInteractionEnd]);
 
   return (
     <div
       ref={scrollerRef}
-      className="w-full h-full overflow-y-scroll no-scrollbar"
+      className={`w-full h-full overflow-y-scroll no-scrollbar ${
+        isMobile ? 'touch-pan-y' : ''
+      }`}
+      style={{
+        // 移动端性能优化
+        WebkitOverflowScrolling: 'touch',
+        WebkitTransform: 'translateZ(0)', // 启用硬件加速
+        transform: 'translateZ(0)',
+        willChange: 'scroll-position',
+        // 防止iOS橡皮筋效果
+        overscrollBehavior: 'contain'
+      }}
       onScroll={handleScrollStart}
       onWheel={handleUserGestureStart}
       onTouchStart={handleUserGestureStart}
@@ -448,10 +588,15 @@ const LyricsScroller: React.FC<LyricsScrollerProps> = ({ lyrics, scrollTime, dis
                 paddingTop: isBlank ? '0' : '3rem', // 增加顶部间距
                 paddingBottom: isBlank ? '0' : '3rem', // 增加底部间距
                 lineHeight: isBlank ? '1' : '1.6', // 增加行高
-                // 保持固定字体大小，只改变颜色和透明度
-                fontSize: '2rem',
-                willChange: isCurrent ? 'opacity' : 'auto',
-                transition: 'opacity 0.3s ease',
+                // 移动端响应式字体大小
+                fontSize: isMobile ? (isSmallScreen ? '1.5rem' : '1.8rem') : '2rem',
+                // 移动端性能优化
+                willChange: isCurrent ? 'opacity, transform' : 'auto',
+                transition: isMobile ? 'opacity 0.2s ease' : 'opacity 0.3s ease',
+                // 移动端优化：减少重绘
+                backfaceVisibility: 'hidden' as const,
+                // 触摸优化
+                touchAction: 'pan-y'
               }}
             >
               {line.text || '\u00A0' /* Non-breaking space for layout */}
