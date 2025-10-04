@@ -33,6 +33,8 @@ const App: React.FC = () => {
   const [audioSrc, setAudioSrc] = useState('');
   const [isIntroPlaying, setIsIntroPlaying] = useState(false);
   const [hasUserInteracted, setHasUserInteracted] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const [audioRestartCount, setAudioRestartCount] = useState(0);
   
   const audioRef = useRef<HTMLAudioElement>(null);
   const introAudioRef = useRef<HTMLAudioElement>(null);
@@ -47,24 +49,39 @@ const App: React.FC = () => {
   const lyrics = useLyrics(LRC_LYRICS);
 
   useEffect(() => {
-    // 接入真实音频：位于 public/audio/ 目录下，构建后可通过 /audio/ 路径直接访问
+    // 检测是否为移动端
+    const checkMobile = () => {
+      const userAgent = navigator.userAgent;
+      const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
+      const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+      const isSmallScreen = window.innerWidth <= 768;
+      
+      const mobile = isMobileDevice || (isTouchDevice && isSmallScreen);
+      console.log('[App] Mobile detection:', { isMobileDevice, isTouchDevice, isSmallScreen, mobile });
+      setIsMobile(mobile);
+      return mobile;
+    };
+
+    const isMobileDevice = checkMobile();
+
+    // 根据设备类型选择音频文件
     try {
-      const realAudioPath = '/audio/心经.mp3';
-      console.log('[App] Setting audio source:', realAudioPath);
-      setAudioSrc(realAudioPath);
+      const audioPath = isMobileDevice ? '/audio/心经_2.mp3' : '/audio/心经.mp3';
+      console.log('[App] Setting audio source for', isMobileDevice ? 'mobile' : 'desktop', ':', audioPath);
+      setAudioSrc(audioPath);
+      
       // 初始状态保持同步：都从0开始，避免scrollTime和currentTime错位
       setScrollTime(0);
       setCurrentTime(0);
       if (audioRef.current) audioRef.current.currentTime = 0;
       // 其余真实时长会在 onLoadedMetadata 中更新
-      // 这里无需手动清理 URL 对象
     } catch (error) {
       console.error('[Audio] Failed to set real audio source:', error);
     }
   }, []);
 
   const handleUserInteraction = useCallback(() => {
-    console.log('[App] User interaction triggered');
+    console.log('[App] User interaction triggered, isMobile:', isMobile);
     setHasUserInteracted(true);
     setIsIntroPlaying(true);
 
@@ -74,36 +91,57 @@ const App: React.FC = () => {
     loopCountRef.current = 0;
     if (audioRef.current) audioRef.current.currentTime = 0;
 
-    // iOS不支持同时播放多个音频，改为先后播放
     const introAudio = introAudioRef.current;
     const mainAudio = audioRef.current;
 
-    if (introAudio) {
-      console.log('[App] Starting intro audio');
-      introAudio.play()
-        .then(() => {
-          console.log('[App] Intro audio started successfully');
-        })
-        .catch(e => {
-          console.error('[Audio] Intro playback failed:', e);
-          // 如果引入音频失败，直接开始主音频
-          if (mainAudio && isReady) {
-            console.log('[App] Starting main audio after intro failure');
-            mainAudio.play().catch(e => console.error('[Audio] Main audio playback failed:', e));
-          }
-        });
-    } else if (mainAudio && isReady) {
-      // 如果没有引入音频，直接播放主音频
-      console.log('[App] Starting main audio directly');
-      mainAudio.play().catch(e => console.error('[Audio] Main audio playback failed:', e));
+    if (isMobile) {
+      // 移动端：只播放合并的音频文件（心经_2.mp3）
+      console.log('[App] Mobile device: playing merged audio directly');
+      if (mainAudio && isReady) {
+        mainAudio.play()
+          .then(() => {
+            console.log('[App] Merged audio started successfully on mobile');
+          })
+          .catch(e => {
+            console.error('[Audio] Mobile merged audio playback failed:', e);
+          });
+      }
+    } else {
+      // 桌面端：先后播放引入音频和主音频
+      console.log('[App] Desktop device: playing intro then main audio');
+      if (introAudio) {
+        console.log('[App] Starting intro audio');
+        introAudio.play()
+          .then(() => {
+            console.log('[App] Intro audio started successfully');
+          })
+          .catch(e => {
+            console.error('[Audio] Intro playback failed:', e);
+            // 如果引入音频失败，直接开始主音频
+            if (mainAudio && isReady) {
+              console.log('[App] Starting main audio after intro failure');
+              mainAudio.play().catch(e => console.error('[Audio] Main audio playback failed:', e));
+            }
+          });
+      } else if (mainAudio && isReady) {
+        // 如果没有引入音频，直接播放主音频
+        console.log('[App] Starting main audio directly');
+        mainAudio.play().catch(e => console.error('[Audio] Main audio playback failed:', e));
+      }
     }
-  }, [isReady]);
+  }, [isReady, isMobile]);
 
   const handleIntroEnd = useCallback(() => {
     console.log('[App] Intro audio ended, starting main audio');
     setIsIntroPlaying(false);
     
-    // 引入音频结束后，开始播放主音频
+    // 移动端不需要这个逻辑，因为移动端直接播放合并音频
+    if (isMobile) {
+      console.log('[App] Mobile device: intro end ignored');
+      return;
+    }
+    
+    // 桌面端：引入音频结束后，开始播放主音频
     const mainAudio = audioRef.current;
     if (mainAudio && isReady) {
       console.log('[App] Starting main audio after intro');
@@ -115,7 +153,7 @@ const App: React.FC = () => {
           console.error('[Audio] Main audio playback failed after intro:', e);
         });
     }
-  }, [isReady]);
+  }, [isReady, isMobile]);
 
   const handlePlayPause = useCallback(() => {
     const audio = audioRef.current;
@@ -248,6 +286,86 @@ const App: React.FC = () => {
     const err = e.currentTarget.error;
     if (err) console.error(`Audio Error: Code ${err.code} - ${err.message}`);
   };
+
+  // 处理音频结束，实现无尽播放
+  const handleAudioEnded = useCallback(() => {
+    console.log('[App] Audio ended, restarting for infinite playback, restart count:', audioRestartCount);
+    loopCountRef.current++;
+    setAudioRestartCount(prev => prev + 1);
+    
+    // 重置音频到开始位置
+    const audio = audioRef.current;
+    if (audio) {
+      audio.currentTime = 0;
+      setCurrentTime(0);
+      setScrollTime(0);
+      
+      // 移动端特殊处理：防止内存泄漏和播放问题
+      if (isMobile) {
+        // 移动端：每10次重启后重新加载音频，防止内存问题
+        if (audioRestartCount > 0 && audioRestartCount % 10 === 0) {
+          console.log('[App] Mobile: reloading audio to prevent memory issues');
+          audio.load();
+          setTimeout(() => {
+            audio.play().catch(err => console.error('[Audio] Mobile reload and play failed:', err));
+          }, 200);
+        } else {
+          // 正常重启
+          audio.play()
+            .then(() => {
+              console.log('[App] Mobile audio restarted successfully');
+            })
+            .catch(e => {
+              console.error('[Audio] Mobile audio restart failed:', e);
+              // 移动端播放失败时，尝试重新加载
+              audio.load();
+              setTimeout(() => {
+                audio.play().catch(err => console.error('[Audio] Mobile fallback play failed:', err));
+              }, 100);
+            });
+        }
+      } else {
+        // 桌面端：正常重启
+        audio.play()
+          .then(() => {
+            console.log('[App] Desktop audio restarted successfully');
+          })
+          .catch(e => {
+            console.error('[Audio] Desktop audio restart failed:', e);
+          });
+      }
+    }
+  }, [isMobile, audioRestartCount]);
+
+  // 移动端页面可见性检测，处理后台播放问题
+  useEffect(() => {
+    if (!isMobile) return;
+
+    const handleVisibilityChange = () => {
+      const audio = audioRef.current;
+      if (!audio) return;
+
+      if (document.hidden) {
+        console.log('[App] Mobile: page hidden, pausing audio');
+        audio.pause();
+      } else {
+        console.log('[App] Mobile: page visible, resuming audio');
+        if (isPlaying) {
+          audio.play().catch(e => {
+            console.error('[Audio] Mobile resume failed:', e);
+            // 如果恢复播放失败，可能需要用户重新交互
+            setHasUserInteracted(false);
+          });
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isMobile, isPlaying]);
   
   const currentLineIndex = findCurrentLineIndex(lyrics, currentTime, duration);
 
@@ -275,9 +393,9 @@ const App: React.FC = () => {
         <audio
             key={audioSrc} ref={audioRef} src={audioSrc}
             onPlay={() => setIsPlaying(true)} onPause={() => setIsPlaying(false)}
-            onEnded={() => { loopCountRef.current++; }} onTimeUpdate={handleTimeUpdate}
+            onEnded={handleAudioEnded} onTimeUpdate={handleTimeUpdate}
             onLoadedMetadata={handleLoadedMetadata} onCanPlay={handleCanPlay} onError={handleAudioError}
-            preload="auto" loop
+            preload="auto"
             playsInline
             webkit-playsinline="true"
             controls={false}
@@ -303,10 +421,12 @@ const App: React.FC = () => {
         {/* 移动端调试信息 */}
         {process.env.NODE_ENV === 'development' && (
           <div className="fixed top-4 left-4 bg-black bg-opacity-75 text-white text-xs p-2 rounded z-50">
+            <div>Mobile: {isMobile ? 'Yes' : 'No'}</div>
             <div>User: {hasUserInteracted ? 'Yes' : 'No'}</div>
             <div>Ready: {isReady ? 'Yes' : 'No'}</div>
             <div>Playing: {isPlaying ? 'Yes' : 'No'}</div>
             <div>Intro: {isIntroPlaying ? 'Yes' : 'No'}</div>
+            <div>Restarts: {audioRestartCount}</div>
             <div>Audio: {audioSrc}</div>
           </div>
         )}
