@@ -50,6 +50,7 @@ const App: React.FC = () => {
     // 接入真实音频：位于 public/audio/ 目录下，构建后可通过 /audio/ 路径直接访问
     try {
       const realAudioPath = '/audio/心经.mp3';
+      console.log('[App] Setting audio source:', realAudioPath);
       setAudioSrc(realAudioPath);
       // 初始状态保持同步：都从0开始，避免scrollTime和currentTime错位
       setScrollTime(0);
@@ -249,6 +250,9 @@ const App: React.FC = () => {
             onEnded={() => { loopCountRef.current++; }} onTimeUpdate={handleTimeUpdate}
             onLoadedMetadata={handleLoadedMetadata} onCanPlay={handleCanPlay} onError={handleAudioError}
             preload="auto" loop
+            playsInline
+            webkit-playsinline="true"
+            controls={false}
         />
         
         {/* 引入音频 */}
@@ -256,6 +260,9 @@ const App: React.FC = () => {
             ref={introAudioRef} src="/audio/tone_singing_bowl.mp3"
             onEnded={handleIntroEnd} onError={handleIntroEnd}
             preload="auto"
+            playsInline
+            webkit-playsinline="true"
+            controls={false}
         />
         
         {/* 自动播放引导 - 优先显示，避免页面内容闪现 */}

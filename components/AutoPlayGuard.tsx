@@ -68,6 +68,10 @@ export default function AutoPlayGuard({ onUserInteraction, isReady, isPlaying }:
           z-index: 2147483647;
           cursor: pointer;
           user-select: none;
+          -webkit-tap-highlight-color: transparent;
+          -webkit-touch-callout: none;
+          -webkit-user-select: none;
+          touch-action: manipulation;
         }
         
         .autoplay-content {

@@ -47,15 +47,69 @@ audio {
   background: rgba(255, 255, 255, 0.5);
 }
 
-/* 响应式设计 */
+/* 移动端优化 */
 @media (max-width: 768px) {
   body {
     font-size: 14px;
+    /* 移动端防止缩放 */
+    -webkit-text-size-adjust: 100%;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  
+  /* 移动端音频播放器样式优化 */
+  input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 8px;
+    background: transparent;
+    cursor: pointer;
+  }
+  
+  input[type="range"]::-webkit-slider-track {
+    height: 8px;
+    background: #4A5568;
+    border-radius: 4px;
+  }
+  
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 20px;
+    width: 20px;
+    border-radius: 50%;
+    background: #87CEEB;
+    cursor: pointer;
+    border: 2px solid #fff;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+  }
+  
+  input[type="range"]::-moz-range-track {
+    height: 8px;
+    background: #4A5568;
+    border-radius: 4px;
+    border: none;
+  }
+  
+  input[type="range"]::-moz-range-thumb {
+    height: 20px;
+    width: 20px;
+    border-radius: 50%;
+    background: #87CEEB;
+    cursor: pointer;
+    border: 2px solid #fff;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
   }
 }
 
 @media (max-width: 480px) {
   body {
     font-size: 12px;
+  }
+  
+  /* 小屏幕设备进一步优化 */
+  #root {
+    padding: 0;
   }
 }
