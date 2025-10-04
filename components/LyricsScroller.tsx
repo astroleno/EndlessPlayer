@@ -107,21 +107,22 @@ const LyricsScroller: React.FC<LyricsScrollerProps> = ({ lyrics, scrollTime, dis
          }
     }
     
-    // 平滑插值滚动，避免直接跳跃
-    const currentScrollTop = scroller.scrollTop;
-    const distance = targetScrollTop - currentScrollTop;
-    
-    // 添加最小移动阈值，避免微小抖动
-    if (Math.abs(distance) < 0.5) {
-      // 距离很小时直接到达目标，避免抖动
-      scroller.scrollTop = targetScrollTop;
-      currentScrollTopRef.current = targetScrollTop;
-      animationFrameRef.current = requestAnimationFrame(scrollStep);
-      return;
-    }
-    
-    // 基于时间的精确步进计算
-    let newScrollTop;
+  // 平滑插值滚动，避免直接跳跃
+  const currentScrollTop = scroller.scrollTop;
+  const distance = targetScrollTop - currentScrollTop;
+  
+  // 添加最小移动阈值，避免微小抖动
+  if (Math.abs(distance) < 0.5) {
+    // 距离很小时直接到达目标，避免抖动
+    scroller.scrollTop = targetScrollTop;
+    currentScrollTopRef.current = targetScrollTop;
+    animationFrameRef.current = requestAnimationFrame(scrollStep);
+    return;
+  }
+  
+  // 使用更平滑的插值，确保连续滚动
+  const smoothingFactor = 0.08; // 增加平滑度
+  let newScrollTop = currentScrollTop + distance * smoothingFactor;
     
     if (nextIdx !== -1 && lyrics[nextIdx]) {
       // 有下一行信息时，基于时间间隔计算精确步进
@@ -148,11 +149,11 @@ const LyricsScroller: React.FC<LyricsScrollerProps> = ({ lyrics, scrollTime, dis
         
         newScrollTop = currentScrollTop + (targetPosition - currentScrollTop > 0 ? actualPixelsPerFrame : -actualPixelsPerFrame);
       } else {
-        newScrollTop = currentScrollTop + distance * 0.05;
+        newScrollTop = currentScrollTop + distance * 0.08;
       }
     } else {
       // 没有下一行信息时，使用传统插值
-      newScrollTop = currentScrollTop + distance * 0.05;
+      newScrollTop = currentScrollTop + distance * 0.08;
     }
     
     programmaticScrollRef.current = true;
@@ -324,10 +325,14 @@ const LyricsScroller: React.FC<LyricsScrollerProps> = ({ lyrics, scrollTime, dis
                 color: isCurrent ? '#E2E8F0' : '#94A3B8',
                 pointerEvents: isBlank ? 'none' : 'auto',
                 userSelect: isBlank ? 'none' : 'auto',
-                height: isBlank ? '5rem' : 'auto', // Give blank lines a consistent height
-                paddingTop: isBlank ? '0' : '3rem', // 增加顶部间距
-                paddingBottom: isBlank ? '0' : '3rem', // 增加底部间距
-                lineHeight: isBlank ? '1' : '1.6', // 增加行高
+                height: isBlank ? '5rem' : 'auto',
+                paddingTop: isBlank ? '0' : '3rem',
+                paddingBottom: isBlank ? '0' : '3rem',
+                // 防止左右晃动
+                transformOrigin: 'center',
+                willChange: 'transform, opacity',
+                backfaceVisibility: 'hidden',
+                WebkitBackfaceVisibility: 'hidden'
               }}
             >
               {line.text || '\u00A0' /* Non-breaking space for layout */}

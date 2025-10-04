@@ -97,6 +97,7 @@ const App: React.FC = () => {
   }, []);
 
   const handleUserInteraction = useCallback(() => {
+    addDebugLog(`用户交互触发，移动端: ${isMobile}`);
     console.log('[App] User interaction triggered, isMobile:', isMobile);
     setHasUserInteracted(true);
     setIsIntroPlaying(true);
@@ -347,6 +348,7 @@ const App: React.FC = () => {
 
   // 处理音频结束，实现无尽播放
   const handleAudioEnded = useCallback(() => {
+    addDebugLog(`音频结束，重启播放，第${audioRestartCount + 1}次`);
     console.log('[App] Audio ended, restarting for infinite playback, restart count:', audioRestartCount);
     loopCountRef.current++;
     setAudioRestartCount(prev => prev + 1);
@@ -357,6 +359,15 @@ const App: React.FC = () => {
       audio.currentTime = 0;
       setCurrentTime(0);
       setScrollTime(0);
+      
+      // 重置滚动状态，确保重新开始滚动
+      addDebugLog('重置滚动状态');
+      
+      // 强制触发一次滚动更新，确保歌词重新开始滚动
+      setTimeout(() => {
+        setCurrentTime(0.1); // 稍微偏移，触发滚动
+        setTimeout(() => setCurrentTime(0), 50); // 然后回到0
+      }, 100);
       
       // 移动端特殊处理：防止内存泄漏和播放问题
       if (isMobile) {
@@ -489,16 +500,27 @@ const App: React.FC = () => {
             <div className="text-xs text-gray-300 mt-1">文件: {audioSrc.split('/').pop()}</div>
             <button 
               onClick={() => {
-                console.log('[Debug] Manual audio test');
+                addDebugLog('手动测试播放');
                 const audio = audioRef.current;
                 if (audio) {
-                  audio.play().catch(e => console.error('[Debug] Manual play failed:', e));
+                  audio.play().catch(e => {
+                    addDebugLog(`播放失败: ${e.message}`);
+                    console.error('[Debug] Manual play failed:', e);
+                  });
                 }
               }}
               className="mt-2 px-2 py-1 bg-blue-600 text-white text-xs rounded"
             >
               测试播放
             </button>
+            {debugLogs.length > 0 && (
+              <div className="mt-2 text-xs text-gray-300">
+                <div className="font-bold">最近日志:</div>
+                {debugLogs.map((log, index) => (
+                  <div key={index} className="truncate">{log}</div>
+                ))}
+              </div>
+            )}
           </div>
         )}
         
