@@ -41,6 +41,11 @@ const LyricsScroller: React.FC<LyricsScrollerProps> = ({ lyrics, scrollTime, dis
   const currentScrollTopRef = useRef(0);
   const targetScrollTopRef = useRef(0);
   const lastScrollTopRef = useRef(0); // 用于检测滚动方向
+
+  // 时间插值相关
+  const interpolatedTimeRef = useRef(displayTime);
+  const lastTimeUpdateRef = useRef(Date.now());
+  const targetTimeRef = useRef(displayTime);
   
   
   // iOS移动端特殊处理
@@ -56,12 +61,64 @@ const LyricsScroller: React.FC<LyricsScrollerProps> = ({ lyrics, scrollTime, dis
   const getCenterPosition = useCallback((index: number) => {
     const lineEl = lineRefs.current[index];
     if (!lineEl) return 0;
-    
+
     const scroller = scrollerRef.current;
     if (!scroller) return 0;
-    
+
     return lineEl.offsetTop - (scroller.clientHeight / 2) + (lineEl.offsetHeight / 2);
   }, []);
+
+  // 时间插值更新函数
+  const updateInterpolatedTime = useCallback(() => {
+    const now = Date.now();
+    const deltaTime = (now - lastTimeUpdateRef.current) / 1000; // 转换为秒
+    lastTimeUpdateRef.current = now;
+
+    if (isPlaying) {
+      // 计算目标时间（考虑循环）
+      const targetTime = targetTimeRef.current;
+      const interpolatedTime = interpolatedTimeRef.current;
+
+      // 计算时间差
+      let timeDiff = targetTime - interpolatedTime;
+
+      // 优化循环边界处理，减少复杂条件判断
+      if (duration > 0) {
+        const normalizedCurrent = interpolatedTime % duration;
+        const normalizedTarget = targetTime % duration;
+
+        // 计算在循环周期内的最短距离
+        let directDiff = normalizedTarget - normalizedCurrent;
+        const wrappedDiff = directDiff > 0 ? directDiff - duration : directDiff + duration;
+
+        // 选择最短路径
+        timeDiff = Math.abs(directDiff) < Math.abs(wrappedDiff) ? directDiff : wrappedDiff;
+      }
+
+      // 动态调整平滑系数：时间差越大，跟踪越紧
+      const absTimeDiff = Math.abs(timeDiff);
+      let smoothingFactor = 0.08; // 基础平滑系数，更紧的跟踪
+
+      if (absTimeDiff > 5.0) {
+        smoothingFactor = 0.3; // 大时间差时快速跟踪
+      } else if (absTimeDiff > 2.0) {
+        smoothingFactor = 0.15; // 中等时间差时适度跟踪
+      } else if (absTimeDiff < 0.1) {
+        smoothingFactor = 0.05; // 小时间差时平滑跟踪
+      }
+
+      interpolatedTimeRef.current += timeDiff * smoothingFactor;
+
+      // 优化防漂移逻辑：使用更小的阈值和渐进式修正
+      if (Math.abs(interpolatedTimeRef.current - targetTime) > 0.2) {
+        // 使用渐进式修正而不是直接重置
+        const correctionFactor = 0.1;
+        interpolatedTimeRef.current += (targetTime - interpolatedTimeRef.current) * correctionFactor;
+      }
+    }
+
+    return interpolatedTimeRef.current;
+  }, [isPlaying, duration]);
   
   // This is the core animation loop for automatic scrolling
   const scrollStep = useCallback(() => {
@@ -78,8 +135,11 @@ const LyricsScroller: React.FC<LyricsScrollerProps> = ({ lyrics, scrollTime, dis
     }
 
     const scroller = scrollerRef.current;
-    const loopTime = displayTime % duration;
-    
+
+    // 使用时间插值，而不是直接使用displayTime
+    const interpolatedTime = updateInterpolatedTime();
+    const loopTime = interpolatedTime % duration;
+
     let currentIdx = findCurrentLineIndex(lyrics, loopTime, duration);
     if (currentIdx === -1) { // Before the first lyric
         animationFrameRef.current = requestAnimationFrame(scrollStep);
@@ -87,7 +147,7 @@ const LyricsScroller: React.FC<LyricsScrollerProps> = ({ lyrics, scrollTime, dis
     }
 
     const nextIdx = (currentIdx + 1) < lyrics.length ? currentIdx + 1 : -1;
-    const loopNum = Math.floor(scrollTime / duration);
+    const loopNum = Math.floor(interpolatedTime / duration);
     
     
     const currentLineEl = lineRefs.current[loopNum * lyrics.length + currentIdx];
@@ -124,19 +184,32 @@ const LyricsScroller: React.FC<LyricsScrollerProps> = ({ lyrics, scrollTime, dis
     // 平滑插值滚动，避免直接跳跃
     const currentScrollTop = scroller.scrollTop;
     const distance = targetScrollTop - currentScrollTop;
-    
-    // 添加最小移动阈值，避免微小抖动
-    if (Math.abs(distance) < 0.5) {
+
+    // 优化最小移动阈值，使用更精确的阈值
+    if (Math.abs(distance) < 0.1) {
       // 距离很小时直接到达目标，避免抖动
       scroller.scrollTop = targetScrollTop;
       currentScrollTopRef.current = targetScrollTop;
       animationFrameRef.current = requestAnimationFrame(scrollStep);
       return;
     }
-    
-    // 使用更平滑的缓动函数，步进更小
-    const easingFactor = 0.02; // 缓动系数，步进更小更平滑
-    const newScrollTop = currentScrollTop + distance * easingFactor;
+
+    // 动态调整缓动系数：距离越大，响应越快
+    const absDistance = Math.abs(distance);
+    let easingFactor = 0.08; // 基础缓动系数，更快的响应
+
+    if (absDistance > 100) {
+      easingFactor = 0.15; // 大距离时快速响应
+    } else if (absDistance > 50) {
+      easingFactor = 0.12; // 中等距离时适度响应
+    } else if (absDistance < 5) {
+      easingFactor = 0.05; // 小距离时精细调整
+    }
+
+    // 添加速度限制，避免过大的跳跃
+    const maxStep = Math.max(5, absDistance * 0.3);
+    const step = Math.min(Math.abs(distance * easingFactor), maxStep);
+    const newScrollTop = currentScrollTop + (distance > 0 ? step : -step);
     
     programmaticScrollRef.current = true;
     scroller.scrollTop = newScrollTop;
@@ -145,7 +218,23 @@ const LyricsScroller: React.FC<LyricsScrollerProps> = ({ lyrics, scrollTime, dis
 
     animationFrameRef.current = requestAnimationFrame(scrollStep);
 
-  }, [isPlaying, lyrics, displayTime, duration, scrollTime, getCenterPosition]);
+  }, [isPlaying, lyrics, duration, scrollTime, getCenterPosition, updateInterpolatedTime]);
+
+  // 初始化时间插值
+  useEffect(() => {
+    interpolatedTimeRef.current = displayTime;
+    targetTimeRef.current = displayTime;
+    lastTimeUpdateRef.current = Date.now();
+  }, [displayTime]);
+
+  // 播放状态改变时重置插值状态
+  useEffect(() => {
+    if (!isPlaying) {
+      // 暂停时同步时间
+      interpolatedTimeRef.current = displayTime;
+      targetTimeRef.current = displayTime;
+    }
+  }, [isPlaying, displayTime]);
 
   useEffect(() => {
     animationFrameRef.current = requestAnimationFrame(scrollStep);
@@ -173,6 +262,15 @@ const LyricsScroller: React.FC<LyricsScrollerProps> = ({ lyrics, scrollTime, dis
     }
   }, [scrollTime, displayTime, isPlaying]);
 
+  // 监听displayTime变化，更新时间插值目标
+  useEffect(() => {
+    targetTimeRef.current = displayTime;
+    // 在音频seek或者时间跳跃时，立即同步插值时间
+    if (Math.abs(displayTime - interpolatedTimeRef.current) > 1.0) {
+      interpolatedTimeRef.current = displayTime;
+    }
+  }, [displayTime]);
+
   // 音频循环检测：检测音频是否真的在循环播放
   const lastScrollTimeRef = useRef(0);
   useEffect(() => {
@@ -199,6 +297,10 @@ const LyricsScroller: React.FC<LyricsScrollerProps> = ({ lyrics, scrollTime, dis
       isUserInteractingRef.current = false;
       return;
     }
+
+    // 用户交互结束时，同步插值时间到当前displayTime
+    interpolatedTimeRef.current = displayTime;
+    targetTimeRef.current = displayTime;
 
     // 1. 确定滚动方向
     const currentScrollTop = scroller.scrollTop;
@@ -339,11 +441,6 @@ const LyricsScroller: React.FC<LyricsScrollerProps> = ({ lyrics, scrollTime, dis
               }`}
               style={{
                 opacity: isBlank ? 0 : (isCurrent ? 1 : 0.5),
-                // iOS移动端：减少scale变化，避免左右晃动
-                transform: isBlank ? 'scale(1)' : (isIOS && isMobile ? 
-                  `scale(${isCurrent ? 1.02 : 1})` : 
-                  `scale(${isCurrent ? 1.05 : 1})`
-                ),
                 color: isCurrent ? '#E2E8F0' : '#94A3B8',
                 pointerEvents: isBlank ? 'none' : 'auto',
                 userSelect: isBlank ? 'none' : 'auto',
@@ -351,10 +448,10 @@ const LyricsScroller: React.FC<LyricsScrollerProps> = ({ lyrics, scrollTime, dis
                 paddingTop: isBlank ? '0' : '3rem', // 增加顶部间距
                 paddingBottom: isBlank ? '0' : '3rem', // 增加底部间距
                 lineHeight: isBlank ? '1' : '1.6', // 增加行高
-                // 添加transform-origin确保缩放不会导致位置偏移
-                transformOrigin: 'center center',
-                // 添加will-change优化性能
-                willChange: isCurrent ? 'transform, opacity' : 'auto',
+                // 保持固定字体大小，只改变颜色和透明度
+                fontSize: '2rem',
+                willChange: isCurrent ? 'opacity' : 'auto',
+                transition: 'opacity 0.3s ease',
               }}
             >
               {line.text || '\u00A0' /* Non-breaking space for layout */}
