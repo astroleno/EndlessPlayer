@@ -17,22 +17,19 @@ export default function AutoPlayGuard({ onUserInteraction, isReady, isPlaying }:
   useEffect(() => {
     setMounted(true);
     
-    // 检测是否需要显示引导 - 所有设备都需要用户交互才能开始播放
+    // 检测是否需要显示引导
     const checkShouldShow = () => {
-      // 如果用户已经点击过，不再显示遮罩
+      // 如果用户已经点击过，立即隐藏遮罩
       if (hasClicked) {
         setShouldShow(false);
         return;
       }
-      // 只要音频未就绪或未播放，就显示遮罩
-      const needsInteraction = !isReady || !isPlaying;
-      setShouldShow(needsInteraction);
+      // 只有在音频未就绪且用户未交互时才显示遮罩
+      setShouldShow(!isReady && !hasClicked);
     };
 
-    // 立即显示遮罩（所有设备都需要用户交互）
-    if (!hasClicked) {
-      setShouldShow(true);
-    }
+    // 初始检查
+    checkShouldShow();
     
     // 监听音频状态变化
     const interval = setInterval(checkShouldShow, 200);

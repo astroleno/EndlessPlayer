@@ -64,6 +64,7 @@ const App: React.FC = () => {
   }, []);
 
   const handleUserInteraction = useCallback(() => {
+    console.log('[App] User interaction triggered');
     setHasUserInteracted(true);
     setIsIntroPlaying(true);
 
@@ -73,23 +74,48 @@ const App: React.FC = () => {
     loopCountRef.current = 0;
     if (audioRef.current) audioRef.current.currentTime = 0;
 
-    // 同时播放引入音频和主音频
+    // iOS不支持同时播放多个音频，改为先后播放
     const introAudio = introAudioRef.current;
     const mainAudio = audioRef.current;
 
     if (introAudio) {
-      introAudio.play().catch(e => console.error('[Audio] Intro playback failed:', e));
-    }
-
-    if (mainAudio && isReady) {
+      console.log('[App] Starting intro audio');
+      introAudio.play()
+        .then(() => {
+          console.log('[App] Intro audio started successfully');
+        })
+        .catch(e => {
+          console.error('[Audio] Intro playback failed:', e);
+          // 如果引入音频失败，直接开始主音频
+          if (mainAudio && isReady) {
+            console.log('[App] Starting main audio after intro failure');
+            mainAudio.play().catch(e => console.error('[Audio] Main audio playback failed:', e));
+          }
+        });
+    } else if (mainAudio && isReady) {
+      // 如果没有引入音频，直接播放主音频
+      console.log('[App] Starting main audio directly');
       mainAudio.play().catch(e => console.error('[Audio] Main audio playback failed:', e));
     }
   }, [isReady]);
 
   const handleIntroEnd = useCallback(() => {
+    console.log('[App] Intro audio ended, starting main audio');
     setIsIntroPlaying(false);
-    // 引入音频结束后，主音频继续播放，无需额外操作
-  }, []);
+    
+    // 引入音频结束后，开始播放主音频
+    const mainAudio = audioRef.current;
+    if (mainAudio && isReady) {
+      console.log('[App] Starting main audio after intro');
+      mainAudio.play()
+        .then(() => {
+          console.log('[App] Main audio started successfully');
+        })
+        .catch(e => {
+          console.error('[Audio] Main audio playback failed after intro:', e);
+        });
+    }
+  }, [isReady]);
 
   const handlePlayPause = useCallback(() => {
     const audio = audioRef.current;
@@ -241,6 +267,8 @@ const App: React.FC = () => {
   };
   const anchorChar = findAnchorChar(currentLineIndex);
 
+  console.log('[App] Render state:', { hasUserInteracted, isReady, isPlaying, isIntroPlaying });
+  
   return (
     <div className={`flex flex-col h-screen bg-[#202734] font-sans overflow-hidden ${!hasUserInteracted ? 'opacity-0' : 'opacity-100'} transition-opacity duration-300`}>
         {/* 主音频 */}
@@ -271,6 +299,17 @@ const App: React.FC = () => {
             isReady={isReady}
             isPlaying={isPlaying || isIntroPlaying}
         />
+        
+        {/* 移动端调试信息 */}
+        {process.env.NODE_ENV === 'development' && (
+          <div className="fixed top-4 left-4 bg-black bg-opacity-75 text-white text-xs p-2 rounded z-50">
+            <div>User: {hasUserInteracted ? 'Yes' : 'No'}</div>
+            <div>Ready: {isReady ? 'Yes' : 'No'}</div>
+            <div>Playing: {isPlaying ? 'Yes' : 'No'}</div>
+            <div>Intro: {isIntroPlaying ? 'Yes' : 'No'}</div>
+            <div>Audio: {audioSrc}</div>
+          </div>
+        )}
         
         <div className="fixed inset-0 grid place-items-center pointer-events-none z-0">
             <span
